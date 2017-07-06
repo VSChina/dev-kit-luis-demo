@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 using Microsoft.Azure.Devices;
 using NAudio.Wave;
 using Newtonsoft.Json;
-
+using System.Text.RegularExpressions;
 using System.Linq;
 
 public static void Run(Stream myBlob, string name, TraceWriter log)
@@ -32,8 +32,8 @@ public static void Run(Stream myBlob, string name, TraceWriter log)
             if (!t.IsFaulted && final != null)
             {
                 log.Info("Translation: " + final.Translation);
-                parseIntent(final.Translation, log);
-                cloudClient.SendAsync("devkit", new Message(Encoding.ASCII.GetBytes(final.Translation))).Wait();
+                var command = parseIntent(final.Translation, log);
+                cloudClient.SendAsync("devkit", new Message(Encoding.ASCII.GetBytes(command))).Wait();
                 Task.Factory.StartNew(() => speechClient.Disconnect()).Wait();
             }
         });
@@ -67,10 +67,10 @@ public static void Run(Stream myBlob, string name, TraceWriter log)
     }
 }
 
-private static void parseIntent(string text, TraceWriter log)
+private static string parseIntent(string text, TraceWriter log)
 {
     string endPoint = "https://westus.api.cognitive.microsoft.com/luis/v2.0/apps/dfe75ca3-b119-46ed-bf5f-4a51f924037e?subscription-key=8d0ef6706f7d4d3296ee7e76b42b1fa8&timezoneOffset=0&verbose=true&q=";
-    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endPoint+ text);
+    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endPoint + text);
     HttpWebResponse response = (HttpWebResponse)request.GetResponse();
     Stream resStream = response.GetResponseStream();
     StreamReader reader = new StreamReader(resStream);
@@ -82,42 +82,63 @@ private static void parseIntent(string text, TraceWriter log)
     log.Info("Intent:" + intent);
     if (intent == "SwitchLight")
     {
-        if (result.entities.Count != 0){
+        if (result.entities.Count != 0)
+        {
             var entity = result.entities[0].entity.ToString();
             if (entity == "off")
             {
                 Console.WriteLine("Command: Turn off the light");
                 log.Info("Command: Turn off the light");
+                return "Light:Off";
             }
-            else if (entity == "on")
+
+            if (entity == "on")
             {
                 Console.WriteLine("Command: Turn on the light");
                 log.Info("Command: Turn on the light");
+                return "Light:On";
             }
-            return;
         }
         Console.WriteLine("Cannot parse this command");
         log.Info("Cannot parse this command");
+        return "None";
 
     }
-    else if(intent =="Blink")
+    if (intent == "Blink")
     {
-        if (result.entities.Count != 0){
+        if (result.entities.Count != 0)
+        {
             var entity = result.entities[0].entity.ToString();
             Console.WriteLine($"Blink the light {entity} times");
             log.Info($"Blink the light {entity} times");
-
-        } 
-        else
-        {
-            Console.WriteLine("Cannot parse  Blink intent");
+            return "Blink:" + entity;
         }
-    }
-    else{
-        Console.WriteLine("Cannot parse user intent");
-        log.Info("Cannot parse user intent");
-    }   
 
+        Console.WriteLine("Cannot parse Blink intent");
+        return "None";
+    }
+    if (intent == "Display")
+    {
+        string str = result.query.ToString();
+        str = Regex.Replace(str, "display ", "", RegexOptions.IgnoreCase);
+        Console.WriteLine("Display: " + str);
+        return "Display:" + str;
+    }
+    if (intent == "Sensor")
+    {
+        if (result.entities.Count != 0)
+        {
+            var entity = result.entities[0].entity.ToString();
+            Console.WriteLine("Sensor: " + entity);
+            return "Sensor:" + entity;
+        }
+
+        Console.WriteLine("Cannot parse Sensor intent");
+        return "None";
+    }
+
+    Console.WriteLine("Cannot parse user intent");
+    return "None";
 }
 
 private static byte[] GetWaveHeader()
