@@ -216,6 +216,7 @@ int complete_c2d_message(char *etag)
     etag[strlen(etag) - 1] = '\0';
     sprintf(temp, C2D_CB_ENDPOINT, hostNameString, deviceIdString, etag + 1);
     HTTPClient request = HTTPClient(HTTP_DELETE, temp);
+    Serial.printf("URL:%s,token:%s\n",temp,current_token);
     request.set_header("Authorization", current_token);
     request.set_header("Accept", "application/json");
     const Http_Response *response = request.send();
@@ -225,11 +226,15 @@ int complete_c2d_message(char *etag)
         Serial.println("Cannot delete message(Null Response).");
         return -1;
     }
+    else
+    {
+        Serial.printf("Message deleted with status code %d\n",response->status_code);
+    }
 
     return !(response->status_code >= 200 && response->status_code < 300);
 }
 
-const char *iot_client_get_c2d_message(char *etag)
+const char *iot_client_get_c2d_message(char **etag)
 {
     if (validate_iot() != 0)
     {
@@ -238,6 +243,7 @@ const char *iot_client_get_c2d_message(char *etag)
     sprintf(temp, C2D_ENDPOINT, hostNameString, deviceIdString);
     HTTPClient request = HTTPClient(HTTP_GET, temp);
     request.set_header("Authorization", current_token);
+    Serial.printf("URL:%s,token:%s\n",temp,current_token);
     request.set_header("Accept", "application/json");
     const Http_Response *response = request.send();
 
@@ -252,8 +258,8 @@ const char *iot_client_get_c2d_message(char *etag)
     {
         if (strcmp("ETag", header->prev->key) == 0)
         {
-            set_string(&etag, header->value, strlen(header->value));
-            Serial.printf("ETag: %s", etag);
+            set_string(etag, header->value, strlen(header->value));
+            Serial.printf("ETag: %s\n", *etag);
         }
 
         header = header->prev;
@@ -261,67 +267,3 @@ const char *iot_client_get_c2d_message(char *etag)
     return response->body != NULL ? strdup(response->body) : NULL;
 }
 
-
-
-void blinkLED(int times)
-{
-    for(int i = 0;i<times;i++) {
-        rgbLed.setColor(_rgb[0].red, _rgb[0].green, _rgb[0].blue);
-        delay(100);
-        rgbLed.turnOff();
-        delay(100);
-    }
-}
-
-const char *onSuccess = "\"Successfully invoke device method\"";
-const char *notFound = "\"No method found\"";
-
-int deviceMethodCallback(const char *methodName, const unsigned char *payload, size_t size, unsigned char **response, size_t *response_size, void *userContextCallback)
-{
-    LogInfo("Try to invoke method %s", methodName);
-    LogInfo("payload is %s,size is %d",payload,size);
-    const char *responseMessage = onSuccess;
-    int result = 200;
-
-    if (strcmp(methodName, "start") == 0)
-    {
-        start();
-    }
-    else if (strcmp(methodName, "stop") == 0)
-    {
-        stop();
-    }
-    else if (strcmp(methodName, "display") == 0)
-    {
-        if(size>2) {
-            unsigned char* p = new unsigned char[size-1];
-            strncpy((char*)p,(char*)(payload+1),size-2);
-            p[size-2] = '\0';
-            display(p);
-            delete p;
-        }
-    }
-    else if (strcmp(methodName, "blinkLED") == 0)
-    {
-        if(size>2) {
-            unsigned char* p = new unsigned char[size-1];
-            strncpy((char*)p,(char*)(payload+1),size-2);
-            int times = atoi((char*)p);
-            LogInfo("Times:%d",times);
-            blinkLED(times);
-            delete p;
-        }
-    }
-    else
-    {
-        LogInfo("No method %s found", methodName);
-        responseMessage = notFound;
-        result = 404;
-    }
-
-    *response_size = strlen(responseMessage);
-    *response = (unsigned char *)malloc(*response_size);
-    strncpy((char *)(*response), responseMessage, *response_size);
-
-    return result;
-}
