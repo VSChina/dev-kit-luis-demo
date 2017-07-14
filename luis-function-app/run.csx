@@ -13,14 +13,14 @@ using System.Threading.Tasks;
 using Microsoft.Azure.Devices;
 using NAudio.Wave;
 using Newtonsoft.Json;
-
+using System.Text.RegularExpressions;
 using System.Linq;
 
 public static void Run(Stream myBlob, string name, TraceWriter log)
 {
     var connectionString = "HostName=devkit-luis-iot-hub.azure-devices.net;SharedAccessKeyName=iothubowner;SharedAccessKey=h8SKPsTaSyAUrvrPh5BjRifAjU9wXO4na2OGn29r6nE=";
     var cloudClient = ServiceClient.CreateFromConnectionString(connectionString);
-    var speechClient = new SpeechClient("zh-CN", "en");
+    var speechClient = new SpeechClient("en", "en");
     var textDecoder = TextMessageDecoder.CreateTranslateDecoder();
     speechClient.OnTextData += (c, a) => { textDecoder.AppendData(a); };
     speechClient.OnEndOfTextData += (c, a) =>
@@ -32,8 +32,10 @@ public static void Run(Stream myBlob, string name, TraceWriter log)
             if (!t.IsFaulted && final != null)
             {
                 log.Info("Translation: " + final.Translation);
-                parseIntent(final.Translation, log);
-                cloudClient.SendAsync("devkit", new Message(Encoding.ASCII.GetBytes(final.Translation))).Wait();
+                var command = ParseIntent(final.Translation, log);
+                log.Info(command);
+                
+                cloudClient.SendAsync("devkit", new Message(Encoding.ASCII.GetBytes(command))).Wait();
                 Task.Factory.StartNew(() => speechClient.Disconnect()).Wait();
             }
         });
@@ -67,58 +69,120 @@ public static void Run(Stream myBlob, string name, TraceWriter log)
     }
 }
 
-private static void parseIntent(string text, TraceWriter log)
+private static string ParseIntent(string text, TraceWriter log)
 {
     string endPoint = "https://westus.api.cognitive.microsoft.com/luis/v2.0/apps/dfe75ca3-b119-46ed-bf5f-4a51f924037e?subscription-key=8d0ef6706f7d4d3296ee7e76b42b1fa8&timezoneOffset=0&verbose=true&q=";
-    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endPoint+ text);
+    Dictionary<string, int> dic = new Dictionary<string, int>()
+    {
+        {"one",1},{"two",2},{"three",3},{"four",4},{"five",5},{"six",6},{"seven",7},{"eight",8},{"nine",9}
+    };
+    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(endPoint + text);
     HttpWebResponse response = (HttpWebResponse)request.GetResponse();
     Stream resStream = response.GetResponseStream();
     StreamReader reader = new StreamReader(resStream);
     string strResponse = reader.ReadToEnd();
     dynamic result = JsonConvert.DeserializeObject(strResponse);
-
-    var intent = result.topScoringIntent.intent.ToString();
-    Console.WriteLine("Intent:" + intent);
-    log.Info("Intent:" + intent);
-    if (intent == "SwitchLight")
+    if (result.topScoringIntent != null)
     {
-        if (result.entities.Count != 0){
-            var entity = result.entities[0].entity.ToString();
-            if (entity == "off")
-            {
-                Console.WriteLine("Command: Turn off the light");
-                log.Info("Command: Turn off the light");
-            }
-            else if (entity == "on")
-            {
-                Console.WriteLine("Command: Turn on the light");
-                log.Info("Command: Turn on the light");
-            }
-            return;
-        }
-        Console.WriteLine("Cannot parse this command");
-        log.Info("Cannot parse this command");
-
-    }
-    else if(intent =="Blink")
-    {
-        if (result.entities.Count != 0){
-            var entity = result.entities[0].entity.ToString();
-            Console.WriteLine($"Blink the light {entity} times");
-            log.Info($"Blink the light {entity} times");
-
-        } 
-        else
+        var intent = result.topScoringIntent.intent.ToString();
+        Console.WriteLine("Intent:" + intent);
+        log.Info("Intent:" + intent);
+        if (intent == "SwitchLight")
         {
-            Console.WriteLine("Cannot parse  Blink intent");
+            if (result.entities.Count != 0)
+            {
+                var entity = result.entities[0].entity.ToString();
+                if (entity == "off")
+                {
+                    Console.WriteLine("Command: Turn off the light");
+                    log.Info("Command: Turn off the light");
+                    return "light:off";
+                }
+
+                if (entity == "on")
+                {
+                    Console.WriteLine("Command: Turn on the light");
+                    log.Info("Command: Turn on the light");
+                    return "light:on";
+                }
+            }
+            Console.WriteLine("Cannot parse this command");
+            log.Info("Cannot parse this command");
+            return "None";
+
+        }
+        if (intent == "Blink")
+        {
+            if (result.entities.Count != 0)
+            {
+                var entity = result.entities[0].entity.ToString();
+                int num;
+                if (int.TryParse(entity, out num))
+                {
+                    Console.WriteLine($"Blink the light {num} times");
+                    return "blink:" + num;
+                }
+                else
+                {
+                    try
+                    {
+                        return "blink:" + dic[entity];
+                    }
+                    catch (Exception)
+                    {
+                        //ignore
+                    }
+                }
+            }
+
+            Console.WriteLine("Cannot parse Blink intent");
+            return "None";
+        }
+        if (intent == "Display")
+        {
+            string str = result.query.ToString();
+            str = Regex.Replace(str, "display ", "", RegexOptions.IgnoreCase);
+            Console.WriteLine("Display:" + str);
+            if (str.Length > 50)
+            {
+                str = str.Substring(0, 50);
+            }
+            return "display:" + str;
+        }
+        if (intent == "Sensor")
+        {
+            if (result.entities.Count != 0)
+            {
+                var entity = result.entities[0].entity.ToString();
+                if (entity == "temperature" || entity == "humidity")
+                {
+                    return "sensor:humidtemp";
+                }
+                if (entity == "motion")
+                {
+                    return "sensor:motiongyro";
+                }
+                if (entity == "magnetic")
+                {
+                    return "sensor:magnetic";
+                }
+                if (entity == "pressure")
+                {
+                    return "sensor:pressure";
+                }
+                Console.WriteLine("Cannot parse sensor:" + entity);
+                return "None";
+            }
+
+            Console.WriteLine("Cannot parse Sensor intent");
+            return "None";
         }
     }
-    else{
-        Console.WriteLine("Cannot parse user intent");
-        log.Info("Cannot parse user intent");
-    }   
-
+    Console.WriteLine("Cannot parse user intent");
+    return "None";
 }
+
+
 
 private static byte[] GetWaveHeader()
 {
