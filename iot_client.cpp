@@ -234,7 +234,7 @@ int complete_c2d_message(char *etag)
     return !(response->status_code >= 200 && response->status_code < 300);
 }
 
-const char *iot_client_get_c2d_message(char **etag)
+const char *iot_client_get_c2d_message(char *etag)
 {
     if (validate_iot() != 0)
     {
@@ -258,8 +258,8 @@ const char *iot_client_get_c2d_message(char **etag)
     {
         if (strcmp("ETag", header->prev->key) == 0)
         {
-            set_string(etag, header->value, strlen(header->value));
-            Serial.printf("ETag: %s\n", *etag);
+            set_string(&etag, header->value, strlen(header->value));
+            Serial.printf("ETag: %s\n", etag);
         }
 
         header = header->prev;

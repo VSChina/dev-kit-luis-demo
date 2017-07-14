@@ -364,8 +364,10 @@ void loop()
         break;
     case Uploaded:
     Serial.println("start get c2d");
-        char* etag = NULL;
-        const char *p = iot_client_get_c2d_message(&etag);
+        char* etag = (char*)malloc(40);
+        Serial.println(etag);
+        const char *p = iot_client_get_c2d_message(etag);
+        Serial.println(etag);
         Serial.print("finish get c2d\n");
         if (p != NULL)
         {
@@ -380,12 +382,15 @@ void loop()
                 }else if(strncmp(p,"blink:",6) == 0) {
                     int times = atoi((char*)p+6);
                     keepUpdate = 0;
+                    Screen.clean();
                     blinkLED(times);
                 }else if(strncmp(p,"light:on",8) == 0) {
                     keepUpdate = 0;
+                    Screen.clean();
                     switchLED(true);
                 }else if(strncmp(p,"light:off",9) == 0) {
                     keepUpdate = 0;
+                    Screen.clean();
                     switchLED(false);
                 }else if(strncmp(p,"sensor:motiongyro",17) == 0) {
                     keepUpdate = 1;
